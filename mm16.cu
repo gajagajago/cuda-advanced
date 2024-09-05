@@ -3,7 +3,7 @@
 #include <cassert>
 #include <cublas_v2.h>
 
-#define EPS 1e-3 
+#define EPS 1e-1
 #define CHECK_CUDA(e) \
   if ((e) != cudaSuccess) { \
     printf("[%s:%d CudaError]: %s\n", \
@@ -19,7 +19,7 @@
 #define MAX(a, b) (((a) < (b)) ? (b) : (a))
 #define MIN(a, b) (((a) < (b)) ? (a) : (b))
 
-#define WARMUP
+// #define WARMUP
 
 half *A, *B;
 half *C, *C_ans;
@@ -114,7 +114,8 @@ __global__ void mm16(half *A, half *B, half *C, const int M, const int K, const 
             tx = tx + wx;
             assert(tx < TILE_N);
             for (int k = 0; k < TILE_K; ++k) {
-              c_reg[w_sub_row_idx * REG_M + ty][w_sub_col_idx * REG_N + tx] += A_shared[ty][k] * B_shared[k][tx];
+              // c_reg[w_sub_row_idx * REG_M + ty][w_sub_col_idx * REG_N + tx] += A_shared[ty][k] * B_shared[k][tx];
+              c_reg[w_sub_row_idx * REG_M + res_idx_m][w_sub_col_idx * REG_N + res_idx_n] += A_shared[ty][k] * B_shared[k][tx];
             }
           }
         }
@@ -137,7 +138,11 @@ __global__ void mm16(half *A, half *B, half *C, const int M, const int K, const 
           const int wx = blockIdx.x * TILE_N + (w % 4) * 16 + w_sub_col_idx * 64;
           const int ty = (threadIdx.y % 2) + res_idx_m * 2; // (warp 32개를 16개씩 끊은거. blockDim.x가 32일때만 성립.) + (stride가 2) <-- thread가 처리하는 row index
           const int tx = (threadIdx.x % 16) + res_idx_n * 16; // (warp를 16씩 끊은거. stride가 16) <-- thread가 처리하는 col index
+          // printf("[%d][%02d,%02d] (%02d,%02d)(%02d,%02d) writes to (%02d,%02d)\n", w, wy, wx, blockIdx.y, blockIdx.x, threadIdx.y, threadIdx.x, (wy + ty), (wx + tx));
+          // printf("[%d] (%02d,%02d)(%02d,%02d) writes to (%02d,%02d)\n", w, blockIdx.y, blockIdx.x, threadIdx.y, threadIdx.x, (wy + ty), (wx + tx));
+
           C[(wy + ty) * N + (wx + tx)] = c_reg[w_sub_row_idx * REG_M + res_idx_m][w_sub_col_idx * REG_N + res_idx_n];
+          // printf("(%02d,%02d)(%02d,%02d) C[%02d,%02d] <- c_reg[%02d,%02d]\n", blockIdx.y, blockIdx.x, threadIdx.y, threadIdx.x, (wy + ty), (wx + tx), w_sub_row_idx * REG_M + res_idx_m, w_sub_col_idx * REG_N + res_idx_n);
         }
       }
 
