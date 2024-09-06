@@ -28,6 +28,8 @@ constexpr int M = 4096;
 constexpr int K = 4096;
 constexpr int N = 4096;
 
+#define V (4)
+
 constexpr int BLOCK_M = 16;
 constexpr int BLOCK_N = 16;
 constexpr int TILE_M = 64;
@@ -35,30 +37,34 @@ constexpr int TILE_N = 64;
 constexpr int TILE_K = 32;
 
 /* SMEM load */
-constexpr int A_N = MAX(MIN(TILE_K, BLOCK_N), 1); // A tile row is loaded by BLOCK_N threads, and can take multiple iterations
-constexpr int A_M = (BLOCK_M * BLOCK_N) / A_N;    // Number of A tile rows loaded by a thread block in a single iteration
-constexpr int B_N = MAX(MIN(TILE_N, BLOCK_N), 1); // B tile row is loaded by BLOCK_N threads, and can take multiple iterations
-constexpr int B_M = (BLOCK_M * BLOCK_N) / B_N;    // Number of A tile rows loaded by a thread block in a single iteration
+constexpr int A_N = MAX(MIN(TILE_K / V, BLOCK_N), 1); // number of threads to load a row of A shared. Max: BLOCK_N
+constexpr int A_M = (BLOCK_M * BLOCK_N) / A_N;        // number of rows of A shared loaded in a single memory access 
+constexpr int B_N = MAX(MIN(TILE_N / V, BLOCK_N), 1); // number of threads to load a row of B shared. Max: BLOCK_N
+constexpr int B_M = (BLOCK_M * BLOCK_N) / B_N;        // number of rows of B shared loaded in a single memory access 
 
-/* a thread computes REG_M * REG_N C elements */
-constexpr int REG_M = (TILE_M + BLOCK_M - 1) / BLOCK_M; // Number of C row elements computed per thread
-constexpr int REG_N = (TILE_N + BLOCK_N - 1) / BLOCK_N; // number of C col elements computer per thread
+/* a thread computes REG_M * (REG_N vector) C elements */
+constexpr int REG_M = (TILE_M + BLOCK_M - 1) / BLOCK_M; // number of C row elements per thread
+constexpr int REG_N = ((TILE_N / V) + BLOCK_N - 1) / BLOCK_N; // number of C col **vector** elements per thread
+                                                              // a thread computes REG_M * REG_N C elements
 
-__global__ void mm32(float *A, float *B, float *C, const int M, const int K, const int N)
+__global__ void mm32(float4 *A, float4 *B, float4 *C, const int M, const int K, const int N)
 {
   if (blockIdx.x * TILE_N >= N || blockIdx.y * TILE_M >= M) return;
+  
+  const int K_V = K / V;
+  const int N_V = N / V;
 
-  const float ZERO = { 0.f };
+  const float4 ZERO = { 0.f };
 
-  __shared__ float A_shared[TILE_M][TILE_K];
-  __shared__ float B_shared[TILE_K][TILE_N];
-
+  __shared__ float4 A_shared[TILE_M][TILE_K / V];
+  __shared__ float4 B_shared[TILE_K][TILE_N / V];
+  
   const int ay = (blockDim.x * threadIdx.y + threadIdx.x) / A_N;
   const int ax = (blockDim.x * threadIdx.y + threadIdx.x) % A_N;
   const int by = (blockDim.x * threadIdx.y + threadIdx.x) / B_N;
   const int bx = (blockDim.x * threadIdx.y + threadIdx.x) % B_N;
 
-  float c_reg[REG_M][REG_N];
+  float4 c_reg[REG_M][REG_N];
 
   // init c_reg
   for (int i = 0; i < REG_M; ++i) {
@@ -72,32 +78,50 @@ __global__ void mm32(float *A, float *B, float *C, const int M, const int K, con
     for (int ii = 0; ii < TILE_M; ii += A_M) {
       int li = ii + ay; // which row in shared A
       int Ai = TILE_M * blockIdx.y + li;  // which row in A
-      for (int kk = 0; kk < TILE_K; kk += A_N) {  // load A row iteratively
+      for (int kk = 0; kk < TILE_K / V; kk += A_N) {  // load A row iteratively
         int lk = kk + ax; // which col in shared A
-        int Ak = tk + lk;
-        A_shared[li][lk] = (Ai < M && Ak < K) ? A[Ai * K + Ak] : ZERO;
+        int Ak = (tk / V) + lk;
+        A_shared[li][lk] = (Ai < M && Ak < K_V) ? A[Ai * K_V + Ak] : ZERO;
       }
     }
 
     // load B
     for (int kk = 0; kk < TILE_K; kk += B_M) {
       int lk = kk + by; // which row in shared B
-      int Bk = tk + lk;  // which row in B
-      for (int jj = 0; jj < TILE_N; jj += B_N) {  // load B row iteratively
-        int lj = jj + bx; // which col in shared B
-        int Bj = blockIdx.x * TILE_N + lj;  // which col in B
-        B_shared[lk][lj] = (Bk < K && Bj < N) ? B[Bk * N + Bj] : ZERO;
+      int Bk = tk + lk;  // which row in B. My prev. wrong answer was: TILE_K * blockIdx.y + lk
+      for (int jj = 0; jj < TILE_N / V; jj += B_N) {  // load B row iteratively
+        int lj = jj + bx;
+        int Bj = blockIdx.x * (TILE_N / V) + lj;
+        B_shared[lk][lj] = (Bk < K && Bj < N_V) ? B[Bk * N_V + Bj] : ZERO;
       }
     }
     // sync after load
     __syncthreads();
 
     for (int y = 0; y < REG_M; ++y) {
-      int i = y * BLOCK_M + threadIdx.y;
+      int i = threadIdx.y + y * BLOCK_M;  // last operand NOT * REG_M
       for (int x = 0; x < REG_N; ++x) {
-        int j = x * BLOCK_N + threadIdx.x;
-        for (int k = 0; k < TILE_K; ++k) {
-          c_reg[y][x] += A_shared[i][k] * B_shared[k][j];
+        int j = threadIdx.x + x * BLOCK_N;  // last operand NOT * REG_N
+        for (int k = 0; k < TILE_K / V; ++k) {
+          c_reg[y][x].x += A_shared[i][k].x * B_shared[V * k + 0][j].x;
+          c_reg[y][x].y += A_shared[i][k].x * B_shared[V * k + 0][j].y;
+          c_reg[y][x].z += A_shared[i][k].x * B_shared[V * k + 0][j].z;
+          c_reg[y][x].w += A_shared[i][k].x * B_shared[V * k + 0][j].w;
+
+          c_reg[y][x].x += A_shared[i][k].y * B_shared[V * k + 1][j].x;
+          c_reg[y][x].y += A_shared[i][k].y * B_shared[V * k + 1][j].y;
+          c_reg[y][x].z += A_shared[i][k].y * B_shared[V * k + 1][j].z;
+          c_reg[y][x].w += A_shared[i][k].y * B_shared[V * k + 1][j].w;
+
+          c_reg[y][x].x += A_shared[i][k].z * B_shared[V * k + 2][j].x;
+          c_reg[y][x].y += A_shared[i][k].z * B_shared[V * k + 2][j].y;
+          c_reg[y][x].z += A_shared[i][k].z * B_shared[V * k + 2][j].z;
+          c_reg[y][x].w += A_shared[i][k].z * B_shared[V * k + 2][j].w;
+
+          c_reg[y][x].x += A_shared[i][k].w * B_shared[V * k + 3][j].x;
+          c_reg[y][x].y += A_shared[i][k].w * B_shared[V * k + 3][j].y;
+          c_reg[y][x].z += A_shared[i][k].w * B_shared[V * k + 3][j].z;
+          c_reg[y][x].w += A_shared[i][k].w * B_shared[V * k + 3][j].w;
         }
       }
     }
@@ -107,15 +131,17 @@ __global__ void mm32(float *A, float *B, float *C, const int M, const int K, con
 
   // copy back
   for (int y = 0; y < REG_M; ++y) {
-    int i = blockIdx.y * TILE_M + y * BLOCK_M + threadIdx.y;
+    int i = blockIdx.y * TILE_M + threadIdx.y + y * BLOCK_M;  // last operand NOT * REG_M
     for (int x = 0; x < REG_N; ++x) {
-      int j = blockIdx.x * TILE_N + x * BLOCK_N + threadIdx.x;
-      C[i * N + j] = c_reg[y][x];
+      int j = blockIdx.x * (TILE_N / V) + threadIdx.x + x * BLOCK_N;  // last operand NOT * REG_N
+      C[i * N_V + j] = c_reg[y][x];
     }
   }
 }
 
 int main(int argc, char *argv[]) {
+  assert(K % V == 0); assert(N % V == 0);
+
   A = (float *)malloc(M * K * sizeof(float));
   B = (float *)malloc(K * N * sizeof(float));
   C = (float *)malloc(M * N * sizeof(float));
@@ -140,9 +166,9 @@ int main(int argc, char *argv[]) {
 #ifdef WARMUP
   {
     for (int ii = 0; ii < 10; ++ii) {
-      dim3 blockDim{ BLOCK_N, BLOCK_M, 1 };
-      dim3 gridDim{ (unsigned int)(N + TILE_N - 1) / TILE_N, (unsigned int)(M + TILE_M - 1) / TILE_M, 1 };
-      mm32 << < gridDim, blockDim >> > (A_cuda, B_cuda, C_cuda, M, K, N);
+      dim3 blockDim { BLOCK_N, BLOCK_M, 1 };
+      dim3 gridDim { (unsigned int)(N + TILE_N - 1) / TILE_N, (unsigned int)(M + TILE_M - 1) / TILE_M, 1 };
+      mm32 <<< gridDim, blockDim >>> ((float4*)A_cuda, (float4*)B_cuda, (float4*)C_cuda, M, K, N);
       CHECK_CUDA(cudaGetLastError());
     }
     CHECK_CUDA(cudaDeviceSynchronize());
@@ -152,9 +178,9 @@ int main(int argc, char *argv[]) {
   struct timespec s, e;
   clock_gettime(CLOCK_MONOTONIC, &s);
   {
-    dim3 blockDim{ BLOCK_N, BLOCK_M, 1 };
-    dim3 gridDim{ (unsigned int)(N + TILE_N - 1) / TILE_N, (unsigned int)(M + TILE_M - 1) / TILE_M, 1 };
-    mm32 << < gridDim, blockDim >> > (A_cuda, B_cuda, C_cuda, M, K, N);
+    dim3 blockDim { BLOCK_N, BLOCK_M, 1 };
+    dim3 gridDim { (unsigned int)(N + TILE_N - 1) / TILE_N, (unsigned int)(M + TILE_M - 1) / TILE_M, 1 };
+    mm32 <<< gridDim, blockDim >>> ((float4*)A_cuda, (float4*)B_cuda, (float4*)C_cuda, M, K, N);
     CHECK_CUDA(cudaGetLastError());
     CHECK_CUDA(cudaDeviceSynchronize());
   }
