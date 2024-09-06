@@ -128,6 +128,28 @@ __global__ void mm32w(float *A, float *B, float *C, const int M, const int K, co
     // sync after load
     __syncthreads();
 
+    // validate A
+    // if (threadIdx.x == 0 && threadIdx.y == 0) {
+    //   int Ai = BLOCK_TILE_M * blockIdx.y;
+    //   for (int ii = 0; ii < BLOCK_TILE_M; ++ii) {
+    //     int Ak = tk;
+    //     for (int kk = 0; kk < BLOCK_TILE_K; ++kk) {
+    //       assert(A_shared[ii][kk] == ((Ai + ii < M && Ak + kk < K) ? A[(Ai + ii) * K + Ak + kk] : ZERO));
+    //     }
+    //   }
+    // }
+
+    // validate B
+    // if (threadIdx.x == 0 && threadIdx.y == 0) {
+    //   int Bk = tk;
+    //   for (int kk = 0; kk < BLOCK_TILE_K; ++kk) {
+    //     int Bj = BLOCK_TILE_N * blockIdx.x;
+    //     for (int jj = 0; jj < BLOCK_TILE_N; ++jj) {
+    //       assert(B_shared[kk][jj] == ((Bk + kk < K && Bj + jj < N) ? B[(Bk + kk) * N + Bj + jj] : ZERO));
+    //     }
+    //   }
+    // }
+
     for (int k = 0; k < BLOCK_TILE_K; ++k) {
 
       // thread tile repeat row
@@ -151,19 +173,19 @@ __global__ void mm32w(float *A, float *B, float *C, const int M, const int K, co
           b_reg[ttc][jj] = B_shared[k][ttcj + jj];
         }
       }
-    }
 
-    // outer product
-    for (int ttr = 0; ttr < NUM_THREAD_TILES_PER_WARP_TILE_M; ++ttr) {
-      for (int ttc = 0; ttc < NUM_THREAD_TILES_PER_WARP_TILE_N; ++ttc) {
-        for (int ii = 0; ii < THREAD_TILE_M; ++ii) {
-          for (int jj = 0; jj < THREAD_TILE_N; ++jj) {
-            c_reg[ttr][ttc][ii][jj] += a_reg[ttr][ii] * b_reg[ttc][jj];
+      // outer product
+      for (int ttr = 0; ttr < NUM_THREAD_TILES_PER_WARP_TILE_M; ++ttr) {
+        for (int ttc = 0; ttc < NUM_THREAD_TILES_PER_WARP_TILE_N; ++ttc) {
+          for (int ii = 0; ii < THREAD_TILE_M; ++ii) {
+            for (int jj = 0; jj < THREAD_TILE_N; ++jj) {
+              c_reg[ttr][ttc][ii][jj] += a_reg[ttr][ii] * b_reg[ttc][jj];
+            }
           }
         }
       }
-    }
 
+    }
     // sync after use
     __syncthreads();
   }
