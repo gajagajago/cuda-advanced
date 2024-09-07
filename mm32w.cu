@@ -28,6 +28,7 @@ constexpr int M = 4096;
 constexpr int K = 4096;
 constexpr int N = 4096;
 
+//////////////////////////////////////////// DO NOT MODIFY ////////////////////////////////////////////
 constexpr int BLOCK_M = 16;
 constexpr int BLOCK_N = 16;
 
@@ -35,39 +36,34 @@ constexpr int BLOCK_TILE_M = 128; // d_bm
 constexpr int BLOCK_TILE_N = 128; // d_bn
 constexpr int BLOCK_TILE_K = 16;
 
-constexpr int WARP_TILE_M = 64; // d_wm
-constexpr int WARP_TILE_N = 32; // d_wn
-
-static_assert(BLOCK_TILE_M % WARP_TILE_M == 0);
-static_assert(BLOCK_TILE_N % WARP_TILE_N == 0);
-
-/* Warps for a block tile */
-constexpr int NUM_WARPS_PER_BLOCK_TILE_M = BLOCK_TILE_M / WARP_TILE_M;  // NUM_WARPS_Y
-constexpr int NUM_WARPS_PER_BLOCK_TILE_N = BLOCK_TILE_N / WARP_TILE_N;  // NUM_WARPS_X
-
-constexpr int THREAD_TILE_M = 8;  // d_tm
-constexpr int THREAD_TILE_N = 8;  // d_tn
-
-/* Threads for a warp tile */
-constexpr int NUM_THREADS_PER_WARP_Y = 8; // m_t
-constexpr int NUM_THREADS_PER_WARP_X = 4; // n_t
-
-static_assert(NUM_THREADS_PER_WARP_Y * NUM_THREADS_PER_WARP_X == 32);
-static_assert(WARP_TILE_M % (THREAD_TILE_M * NUM_THREADS_PER_WARP_Y) == 0); // (d_wm / m_t) % d_tm == 0
-static_assert(WARP_TILE_N % (THREAD_TILE_N * NUM_THREADS_PER_WARP_X) == 0); // (d_wn / n_t) % d_tn == 0
-
-// constexpr int NUM_THREADS_PER_BLOCK_TILE_M = NUM_WARPS_PER_BLOCK_TILE_M * NUM_THREADS_PER_WARP_Y;
-// constexpr int NUM_THREADS_PER_BLOCK_TILE_N = NUM_WARPS_PER_BLOCK_TILE_N * NUM_THREADS_PER_WARP_X;
-
 /* SMEM load */
 constexpr int A_N = MAX(MIN(BLOCK_TILE_K, BLOCK_N), 1); // A tile row is loaded by BLOCK_N threads, and can take multiple iterations
 constexpr int A_M = (BLOCK_M * BLOCK_N) / A_N;    // Number of A tile rows loaded by a thread block in a single iteration
 constexpr int B_N = MAX(MIN(BLOCK_TILE_N, BLOCK_N), 1); // B tile row is loaded by BLOCK_N threads, and can take multiple iterations
 constexpr int B_M = (BLOCK_M * BLOCK_N) / B_N;    // Number of A tile rows loaded by a thread block in a single iteration
 
-/* a thread computes REG_M * REG_N C elements */
-// constexpr int REG_M = (BLOCK_TILE_M + BLOCK_M - 1) / BLOCK_M; // Number of C row elements computed per thread
-// constexpr int REG_N = (BLOCK_TILE_N + BLOCK_N - 1) / BLOCK_N; // number of C col elements computer per thread
+/* Warps for a block tile */
+constexpr int WARP_TILE_M = 64; // d_wm
+constexpr int WARP_TILE_N = 32; // d_wn
+
+static_assert(BLOCK_TILE_M % WARP_TILE_M == 0);
+static_assert(BLOCK_TILE_N % WARP_TILE_N == 0);
+
+constexpr int NUM_WARPS_PER_BLOCK_TILE_M = BLOCK_TILE_M / WARP_TILE_M;  // NUM_WARPS_Y
+constexpr int NUM_WARPS_PER_BLOCK_TILE_N = BLOCK_TILE_N / WARP_TILE_N;  // NUM_WARPS_X
+
+constexpr int NUM_THREADS_PER_WARP_Y = 8; // m_t
+constexpr int NUM_THREADS_PER_WARP_X = 4; // n_t
+
+static_assert(NUM_THREADS_PER_WARP_Y * NUM_THREADS_PER_WARP_X == 32);
+////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/* Threads for a warp tile */
+constexpr int THREAD_TILE_M = 8;  // d_tm
+constexpr int THREAD_TILE_N = 8;  // d_tn
+
+static_assert(WARP_TILE_M % (THREAD_TILE_M * NUM_THREADS_PER_WARP_Y) == 0); // (d_wm / m_t) % d_tm == 0
+static_assert(WARP_TILE_N % (THREAD_TILE_N * NUM_THREADS_PER_WARP_X) == 0); // (d_wn / n_t) % d_tn == 0
 
 __global__ void mm32w(float *A, float *B, float *C, const int M, const int K, const int N)
 {
