@@ -47,7 +47,7 @@ constexpr int REG_M = (TILE_M + BLOCK_M - 1) / BLOCK_M; // number of C row eleme
 constexpr int REG_N = ((TILE_N / V) + BLOCK_N - 1) / BLOCK_N; // number of C col **vector** elements per thread
                                                               // a thread computes REG_M * REG_N C elements
 
-__global__ void mm32(float4 *A, float4 *B, float4 *C, const int M, const int K, const int N)
+__global__ void mm32v(float4 *A, float4 *B, float4 *C, const int M, const int K, const int N)
 {
   if (blockIdx.x * TILE_N >= N || blockIdx.y * TILE_M >= M) return;
   
@@ -168,7 +168,7 @@ int main(int argc, char *argv[]) {
     for (int ii = 0; ii < 10; ++ii) {
       dim3 blockDim { BLOCK_N, BLOCK_M, 1 };
       dim3 gridDim { (unsigned int)(N + TILE_N - 1) / TILE_N, (unsigned int)(M + TILE_M - 1) / TILE_M, 1 };
-      mm32 <<< gridDim, blockDim >>> ((float4*)A_cuda, (float4*)B_cuda, (float4*)C_cuda, M, K, N);
+      mm32v <<< gridDim, blockDim >>> ((float4*)A_cuda, (float4*)B_cuda, (float4*)C_cuda, M, K, N);
       CHECK_CUDA(cudaGetLastError());
     }
     CHECK_CUDA(cudaDeviceSynchronize());
@@ -180,7 +180,7 @@ int main(int argc, char *argv[]) {
   {
     dim3 blockDim { BLOCK_N, BLOCK_M, 1 };
     dim3 gridDim { (unsigned int)(N + TILE_N - 1) / TILE_N, (unsigned int)(M + TILE_M - 1) / TILE_M, 1 };
-    mm32 <<< gridDim, blockDim >>> ((float4*)A_cuda, (float4*)B_cuda, (float4*)C_cuda, M, K, N);
+    mm32v <<< gridDim, blockDim >>> ((float4*)A_cuda, (float4*)B_cuda, (float4*)C_cuda, M, K, N);
     CHECK_CUDA(cudaGetLastError());
     CHECK_CUDA(cudaDeviceSynchronize());
   }
