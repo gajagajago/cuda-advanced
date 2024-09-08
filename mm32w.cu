@@ -34,7 +34,7 @@ constexpr int BLOCK_N = 16;
 
 constexpr int BLOCK_TILE_M = 128; // d_bm
 constexpr int BLOCK_TILE_N = 128; // d_bn
-constexpr int BLOCK_TILE_K = 16;
+constexpr int BLOCK_TILE_K = 16;  // MODIFIABLE
 
 /* SMEM load */
 constexpr int A_N = MAX(MIN(BLOCK_TILE_K, BLOCK_N), 1); // A tile row is loaded by BLOCK_N threads, and can take multiple iterations
@@ -277,6 +277,8 @@ int main(int argc, char *argv[]) {
         if (fabs((C[i * N + j] - C_ans[i * N + j]) / C[i * N + j]) >= EPS) {
           printf("Validation Failed! C[%d, %d]: %f %f\n", i, j, C[i * N + j], C_ans[i * N + j]);
           exit(1);
+        } else {
+          printf("Validation Success! C[%d, %d]: %f %f\n", i, j, C[i * N + j], C_ans[i * N + j]);
         }
       }
     }

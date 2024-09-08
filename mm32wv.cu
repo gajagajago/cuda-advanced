@@ -36,7 +36,7 @@ constexpr int BLOCK_N = 16;
 
 constexpr int BLOCK_TILE_M = 128; // d_bm
 constexpr int BLOCK_TILE_N = 128; // d_bn
-constexpr int BLOCK_TILE_K = 16;
+constexpr int BLOCK_TILE_K = 16;  // MODIFIABLE
 
 /* SMEM load */
 constexpr int A_N = MAX(MIN(BLOCK_TILE_K / V, BLOCK_N), 1); // A tile row is loaded by BLOCK_N threads, and can take multiple iterations
