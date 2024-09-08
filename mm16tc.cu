@@ -188,7 +188,7 @@ __global__ void mm16tc(half *A, half *B, float *C, const int M, const int K, con
     for (int wtc = 0; wtc < NUM_WMMA_TILES_PER_WARP_TILE_N; ++wtc) {
       const int i = blockIdx.y * BLOCK_TILE_M + WARP_Y * WARP_TILE_M + wtr * (WARP_TILE_M / NUM_WMMA_TILES_PER_WARP_TILE_M);
       const int j = blockIdx.x * BLOCK_TILE_N + WARP_X * WARP_TILE_N + wtc * (WARP_TILE_N / NUM_WMMA_TILES_PER_WARP_TILE_N);
-      wmma::store_matrix_sync(&C[i * N + j], c_frag[wtr][wtc], N, wmma::row_major);
+      wmma::store_matrix_sync(&C[i * N + j], c_frag[wtr][wtc], N, wmma::mem_row_major);
     }
   }
 }
@@ -247,6 +247,19 @@ int main(int argc, char *argv[]) {
   if (argc == 2) {
     cublasHandle_t handle;
     CHECK_CUBLAS(cublasCreate(&handle));
+
+  // NOTE: not warming up cublas gives unexpected slow performance
+#ifdef WARMUP
+    {
+      for (int ii = 0; ii < 10; ++ii) {
+        float alpha = 1.f;
+        float beta = 0.f;
+        CHECK_CUBLAS(cublasGemmEx(handle, CUBLAS_OP_N, CUBLAS_OP_N, N, M, K, &alpha, B_cuda, CUDA_R_16F, N, 
+                                  A_cuda, CUDA_R_16F, K, &beta, C_cublas, CUDA_R_32F, N, CUDA_R_32F, CUBLAS_GEMM_DEFAULT_TENSOR_OP));
+      }
+      CHECK_CUDA(cudaDeviceSynchronize());
+    }
+#endif
 
     struct timespec s, e;
     clock_gettime(CLOCK_MONOTONIC, &s);
