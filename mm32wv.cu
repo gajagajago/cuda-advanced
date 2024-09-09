@@ -1,3 +1,5 @@
+// Copyright (c) 2024-present, Junyeol Ryu, junyeol@aces.snu.ac.kr
+
 #include <stdio.h>
 #include <time.h>
 #include <cassert>

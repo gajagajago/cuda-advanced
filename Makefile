@@ -1,3 +1,5 @@
+# Copyright (c) 2024-present, Junyeol Ryu, junyeol@aces.snu.ac.kr
+
 TARGETS = mm32 mm32v mm32cv mm32w mm32wv mm16tc
 
 all: $(TARGETS)

@@ -1,3 +1,5 @@
+// Copyright (c) 2024-present, Junyeol Ryu, junyeol@aces.snu.ac.kr
+
 #include <stdio.h>
 #include <time.h>
 #include <cassert>
@@ -90,7 +92,6 @@ __global__ void mm16tc(half *A, half *B, float *C, const int M, const int K, con
       wmma::fill_fragment(c_frag[ii][jj], 0.f);
     }
   }
-  // wmma::fill_fragment(c_frag, 0.f);
 
   /* Loading */
   const int ay = (blockDim.x * threadIdx.y + threadIdx.x) / A_N;
@@ -103,8 +104,6 @@ __global__ void mm16tc(half *A, half *B, float *C, const int M, const int K, con
   const int WARP_IDX = THREAD_IDX / 32; // warp id in block
   const int WARP_Y = WARP_IDX / NUM_WARPS_PER_BLOCK_TILE_N; // warp y id in computing block tile
   const int WARP_X = WARP_IDX % NUM_WARPS_PER_BLOCK_TILE_N; // warp x id in computing block tile
-  // const int THREAD_Y_IN_WARP = (THREAD_IDX % 32) / NUM_THREADS_PER_WARP_X; // thread y id in warp tile
-  // const int THREAD_X_IN_WARP = (THREAD_IDX % 32) % NUM_THREADS_PER_WARP_X; // thread x id in warp tile
 
   for (int tk = 0; tk < K; tk += BLOCK_TILE_K) {
     // load A
